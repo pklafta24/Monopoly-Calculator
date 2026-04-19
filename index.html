@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>MonopolyCalculator.io</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --board-bg: #ebf3eb;
+            --monopoly-red: #C70000;
+            --special-band: #94a3b8;
+            --math-bg: #0f172a;
+            --title-dark: #0f172a;
+        }
+        
+        body {
+            background-color: #f1f5f9;
+            touch-action: manipulation;
+            font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            overflow-x: hidden;
+        }
+
+        /* Board Wrapper for Omni-Directional Panning */
+        .board-wrapper {
+            width: 100%;
+            height: auto;
+            overflow: auto;
+            -webkit-overflow-scrolling: touch;
+            padding: 20px;
+            display: flex;
+            justify-content: flex-start;
+            touch-action: pan-x pan-y;
+        }
+
+        @media (min-width: 1024px) {
+            .board-wrapper { justify-content: center; }
+        }
+
+        .board-grid {
+            display: grid;
+            grid-template-columns: repeat(11, 1fr);
+            grid-template-rows: repeat(11, 1fr);
+            aspect-ratio: 1 / 1;
+            background-color: #000;
+            gap: 2px;
+            border: 4px solid #000;
+            min-width: 850px;
+            position: relative;
+        }
+
+        .tile {
+            background-color: var(--board-bg);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            text-align: center;
+            position: relative;
+            user-select: none;
+            transition: background 0.2s;
+            color: #000;
+        }
+        .tile[draggable="true"] { cursor: grab; }
+        .tile[draggable="true"]:active { cursor: grabbing; }
+        .tile:hover { background-color: #f0fdf4; z-index: 50 !important; }
+        
+        .tile-color { height: 18%; width: 100%; border-bottom: 1px solid #000; }
+        .tile-name { padding: 2px; font-weight: 800; height: 35%; display: flex; align-items: center; justify-content: center; text-transform: uppercase; font-size: 0.5rem; line-height: 1.1; color: #000; }
+        
+        .tile-prob {
+            font-size: 0.45rem;
+            font-weight: 900;
+            background: transparent;
+            padding-bottom: 2px;
+            color: #64748b;
+        }
+
+        .tile-infra {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 2px;
+            height: 14px;
+            margin-bottom: 2px;
+        }
+
+        .owner-tab { position: absolute; bottom: 0; left: 0; right: 0; height: 6px; }
+        .owner-tab.a { background-color: #2563eb; }
+        .owner-tab.b { background-color: #9333ea; }
+        .owner-tab.c { background-color: #f59e0b; }
+        .owner-tab.d { background-color: #10b981; }
+
+        #inspection-card {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 300px;
+            background: white;
+            border: 4px solid #000;
+            box-shadow: 0 0 0 1000px rgba(0,0,0,0.15), 0 30px 60px -12px rgba(0,0,0,0.5);
+            z-index: 9999;
+            pointer-events: none;
+        }
+
+        .card-header { padding: 12px; font-weight: 900; font-size: 18px; text-transform: uppercase; border-bottom: 3px solid #000; color: white; text-align: center; letter-spacing: 1px; }
+        .card-body { padding: 10px; }
+        .card-table { width: 100%; font-family: ui-monospace, monospace; font-size: 13px; line-height: 1.5; }
+        .card-table th { font-weight: 900; text-transform: uppercase; color: #64748b; padding: 6px; border-bottom: 2px solid #e2e8f0; text-align: left; }
+        .card-table td { padding: 6px; border-bottom: 1px solid #f1f5f9; color: #000; }
+        .spike-cell { color: #10b981 !important; font-weight: 900; }
+        .card-footer { text-align: center; padding: 8px; background: #f8fafc; font-size: 10px; font-weight: 800; border-top: 2px solid #000; line-height: 1.3; color: #000; }
+
+        .help-trigger {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 12px; height: 12px; background: #cbd5e1; color: #475569;
+            font-size: 8px; font-weight: bold; border-radius: 50%; cursor: help;
+            margin-left: 4px; position: relative;
+        }
+        .help-content {
+            display: none; position: absolute; bottom: 150%; left: 50%;
+            transform: translateX(-50%); width: 140px; background: #1e293b;
+            color: white; padding: 6px 8px; font-size: 9px; font-weight: normal;
+            border-radius: 4px; text-align: center; z-index: 1000;
+            pointer-events: none; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        .help-trigger:hover .help-content { display: block; }
+
+        .dev-overlay {
+            position: absolute; inset: 0; background: rgba(255,255,255,0.85);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            opacity: 0; pointer-events: none; transition: opacity 0.2s; z-index: 120;
+        }
+        .tile:hover .dev-overlay { opacity: 1; pointer-events: auto; }
+
+        .center-area {
+            grid-column: 2 / 11;
+            grid-row: 2 / 11;
+            background-color: #fff;
+            padding: 10px;
+            display: grid;
+            grid-template-columns: 140px 1fr 140px;
+            grid-template-rows: 1fr 1fr;
+            gap: 10px;
+            overflow: hidden;
+        }
+
+        .port-col { 
+            display: flex; flex-direction: column; 
+            border: 1px solid #e2e8f0; 
+            border-radius: 8px; padding: 6px; min-width: 0;
+            box-shadow: inset 0 1px 3px rgba(0,0,0,0.05);
+            transition: border-color 0.2s, background-color 0.2s;
+        }
+        .port-col.port-a { background: rgba(37, 99, 235, 0.05); }
+        .port-col.port-b { background: rgba(147, 51, 234, 0.05); }
+        .port-col.port-c { background: rgba(245, 158, 11, 0.05); }
+        .port-col.port-d { background: rgba(16, 185, 129, 0.05); }
+        .port-col.drag-over { border-color: var(--monopoly-red); background-color: #fff1f2 !important; }
+
+        .inventory-list { flex: 1; overflow-y: auto; }
+        .property-row { 
+            transition: all 0.1s; cursor: pointer; display: flex; 
+            align-items: center; padding: 4px 6px; border-radius: 4px; 
+            font-size: 10px; margin-bottom: 2px; background: white; 
+            box-shadow: 0 1px 1px rgba(0,0,0,0.05); border: 1px solid #f1f5f9; color: #000;
+        }
+        .property-row.staged { background: #fee2e2; border: 1px solid var(--monopoly-red); font-weight: bold; }
+
+        .trade-zone { 
+            grid-column: 2; grid-row: 1 / 3; 
+            background: white; border: 4px double var(--monopoly-red); 
+            display: flex; flex-direction: column; 
+            position: relative; border-radius: 4px;
+        }
+        .trade-zone.drag-over { background-color: #fff1f2; }
+        .trade-header { background: var(--monopoly-red); color: white; text-align: center; font-weight: 900; font-size: 14px; padding: 8px; text-transform: uppercase; letter-spacing: 2px; }
+        
+        .house-icon { color: #10b981; fill: currentColor; width: 10px; height: 10px; }
+        .hotel-icon { color: #ef4444; fill: currentColor; width: 12px; height: 12px; }
+
+        .impact-badge {
+            font-size: 8px; font-weight: 900; padding: 1px 6px; border-radius: 99px;
+            background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0;
+        }
+
+        .custom-scroll::-webkit-scrollbar { width: 4px; }
+        .custom-scroll::-webkit-scrollbar-track { background: transparent; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+
+        @media (max-width: 1000px) {
+            .center-area { grid-template-columns: 120px 1fr 120px; gap: 5px; padding: 5px; }
+            #inspection-card { width: 260px; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="max-w-7xl mx-auto px-4 py-4">
+        <!-- Header Dashboard -->
+        <header class="mb-4 flex flex-col md:flex-row justify-between items-center gap-4">
+            <div>
+                <h1 class="text-4xl font-black tracking-tighter leading-none" style="color: var(--title-dark);">MonopolyCalculator.io</h1>
+                <p class="text-slate-500 text-xs font-bold uppercase tracking-widest mt-2">Markov-Chain Based ROI & EV Dashboard</p>
+            </div>
+            
+            <div class="bg-white border p-2 rounded-xl shadow-sm grid grid-cols-2 md:grid-cols-4 gap-2 w-full md:w-auto">
+                <div class="flex flex-col p-2 bg-blue-50 rounded-lg border border-blue-100">
+                    <span class="text-[9px] font-black text-blue-600 uppercase">A $REV/TURN</span>
+                    <span class="text-lg font-mono font-black text-blue-800">$<span id="ev-a-header">0.00</span></span>
+                </div>
+                <div class="flex flex-col p-2 bg-purple-50 rounded-lg border border-purple-100">
+                    <span class="text-[9px] font-black text-purple-600 uppercase">B $REV/TURN</span>
+                    <span class="text-lg font-mono font-black text-purple-800">$<span id="ev-b-header">0.00</span></span>
+                </div>
+                <div class="flex flex-col p-2 bg-amber-50 rounded-lg border border-amber-100">
+                    <span class="text-[9px] font-black text-amber-600 uppercase">C $REV/TURN</span>
+                    <span class="text-lg font-mono font-black text-amber-800">$<span id="ev-c-header">0.00</span></span>
+                </div>
+                <div class="flex flex-col p-2 bg-emerald-50 rounded-lg border border-emerald-100">
+                    <span class="text-[9px] font-black text-emerald-600 uppercase">D $REV/TURN</span>
+                    <span class="text-lg font-mono font-black text-emerald-800">$<span id="ev-d-header">0.00</span></span>
+                </div>
+            </div>
+        </header>
+
+        <div class="bg-white p-2 rounded-lg shadow-sm mb-4 text-center border-b-4 border-emerald-500">
+            <div id="game-forecast" class="text-sm font-mono font-black text-slate-500 uppercase tracking-tighter">Equilibrium Analysis: Stable</div>
+        </div>
+
+        <div class="board-wrapper">
+            <div id="board" class="board-grid shadow-2xl">
+                
+                <!-- Center Inspection Card -->
+                <div id="inspection-card">
+                    <div id="card-header" class="card-header">--</div>
+                    <div class="card-body">
+                        <table class="card-table">
+                            <thead>
+                                <tr>
+                                    <th>LVL</th>
+                                    <th class="text-right">$REV/TURN</th>
+                                    <th class="text-right">
+                                        ROI
+                                        <span class="help-trigger">?
+                                            <span class="help-content">Marginal ROI for this step per opponent turn.</span>
+                                        </span>
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody id="card-rows"></tbody>
+                        </table>
+                    </div>
+                    <div id="card-footer" class="card-footer">--</div>
+                </div>
+
+                <div class="center-area">
+                    <div class="port-col port-a" ondragover="event.preventDefault(); this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="handleDrop(event, 'A')">
+                        <div class="flex justify-between items-center border-b border-blue-200 mb-1 pb-1">
+                            <span class="text-[10px] font-black text-blue-600 uppercase">A</span>
+                            <div class="flex items-center gap-0.5 text-[10px] font-bold text-slate-400">
+                                <span>$</span>
+                                <input type="number" id="cash-a" value="1500" oninput="calculate()" class="w-10 text-right bg-transparent font-mono font-bold outline-none text-slate-700">
+                            </div>
+                        </div>
+                        <div id="inv-a" class="inventory-list custom-scroll"></div>
+                    </div>
+                    <div class="port-col port-c" style="grid-row: 2;" ondragover="event.preventDefault(); this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="handleDrop(event, 'C')">
+                        <div class="flex justify-between items-center border-b border-amber-200 mb-1 pb-1">
+                            <span class="text-[10px] font-black text-amber-600 uppercase">C</span>
+                            <div class="flex items-center gap-0.5 text-[10px] font-bold text-slate-400">
+                                <span>$</span>
+                                <input type="number" id="cash-c" value="1500" oninput="calculate()" class="w-10 text-right bg-transparent font-mono font-bold outline-none text-slate-700">
+                            </div>
+                        </div>
+                        <div id="inv-c" class="inventory-list custom-scroll"></div>
+                    </div>
+
+                    <!-- Negotiating Table -->
+                    <div class="trade-zone" ondragover="event.preventDefault(); this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="handleTradeDrop(event)">
+                        <div class="trade-header">Negotiating Table</div>
+                        <div class="p-3 bg-slate-50 border-b border-red-200 flex flex-col items-center">
+                            <div class="h-24 w-full mb-3"><canvas id="tradeChart"></canvas></div>
+                            <div class="text-center">
+                                <span class="text-[10px] text-slate-400 font-black uppercase">
+                                    Delta EV
+                                    <span class="help-trigger">?
+                                        <span class="help-content">Global power shift. Positive means the Right side (B/D) gains extraction relative to the Left (A/C). Includes housing value.</span>
+                                    </span>
+                                </span>
+                                <div id="verdict-delta" class="text-2xl font-mono font-black text-emerald-500">$0.00</div>
+                            </div>
+                        </div>
+                        <div class="p-2 grid grid-cols-4 gap-1 flex-1 overflow-y-auto custom-scroll">
+                            <div id="staged-a" class="flex flex-col gap-1"></div>
+                            <div id="staged-b" class="flex flex-col gap-1"></div>
+                            <div id="staged-c" class="flex flex-col gap-1"></div>
+                            <div id="staged-d" class="flex flex-col gap-1"></div>
+                        </div>
+                        <div class="bg-slate-900 text-slate-400 text-[8px] p-3 leading-tight border-t border-slate-800">
+                            <span class="text-white font-black uppercase block mb-1">Instructions:</span>
+                            Drag tiles to Portfolios. Click items to put up for trade. Hover/Hold tiles to view economic card. Drag over chart to calculate <strong>Total Cash Value</strong>.
+                        </div>
+                    </div>
+
+                    <div class="port-col port-b" ondragover="event.preventDefault(); this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="handleDrop(event, 'B')">
+                        <div class="flex justify-between items-center border-b border-purple-200 mb-1 pb-1">
+                            <span class="text-[10px] font-black text-purple-600 uppercase">B</span>
+                            <div class="flex items-center gap-0.5 text-[10px] font-bold text-slate-400">
+                                <span>$</span>
+                                <input type="number" id="cash-b" value="1500" oninput="calculate()" class="w-10 text-right bg-transparent font-mono font-bold outline-none text-slate-700">
+                            </div>
+                        </div>
+                        <div id="inv-b" class="inventory-list custom-scroll"></div>
+                    </div>
+                    <div class="port-col port-d" style="grid-row: 2;" ondragover="event.preventDefault(); this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="handleDrop(event, 'D')">
+                        <div class="flex justify-between items-center border-b border-emerald-200 mb-1 pb-1">
+                            <span class="text-[10px] font-black text-emerald-600 uppercase">D</span>
+                            <div class="flex items-center gap-0.5 text-[10px] font-bold text-slate-400">
+                                <span>$</span>
+                                <input type="number" id="cash-d" value="1500" oninput="calculate()" class="w-10 text-right bg-transparent font-mono font-bold outline-none text-slate-700">
+                            </div>
+                        </div>
+                        <div id="inv-d" class="inventory-list custom-scroll"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <footer class="mt-8 mb-12 text-center text-slate-400 text-[10px] uppercase tracking-widest">
+            MonopolyCalculator.io • Markov Analytics v16.0 Pro
+        </footer>
+    </div>
+
+    <script>
+        const HOUSE_SVG = `<svg class="house-icon" viewBox="0 0 24 24"><path d="M12 3L2 12h3v8h14v-8h3L12 3z"/></svg>`;
+        const HOTEL_SVG = `<svg class="hotel-icon" viewBox="0 0 24 24"><path d="M7 21H5V7l7-4.5L19 7v14h-2v-2h-2v2h-2v-2H9v2H7v-2H5z"/></svg>`;
+
+        const PROPERTY_DATA = {
+            1: { name: "Med. Ave", color: "#955436", prob: 0.0213, rent: [2, 10, 30, 90, 160, 250], cost: 50 },
+            3: { name: "Baltic Ave", color: "#955436", prob: 0.0216, rent: [4, 20, 60, 180, 320, 450], cost: 50 },
+            5: { name: "Reading RR", color: "#000", isRR: true, prob: 0.0296, rent: [25, 50, 100, 200] },
+            6: { name: "Oriental Ave", color: "#aae0fa", prob: 0.0226, rent: [6, 30, 90, 270, 400, 550], cost: 50 },
+            8: { name: "Vermont Ave", color: "#aae0fa", prob: 0.0232, rent: [6, 30, 90, 270, 400, 550], cost: 50 },
+            9: { name: "Conn. Ave", color: "#aae0fa", prob: 0.0230, rent: [8, 40, 100, 300, 450, 600], cost: 50 },
+            11: { name: "St. Charles", color: "#d93a96", prob: 0.0270, rent: [10, 50, 150, 450, 625, 750], cost: 100 },
+            12: { name: "Electric Co", color: "#64748b", isUtil: true, prob: 0.0260, rent: [28, 70] },
+            13: { name: "States Ave", color: "#d93a96", prob: 0.0237, rent: [10, 50, 150, 450, 625, 750], cost: 100 },
+            14: { name: "Virginia Ave", color: "#d93a96", prob: 0.0246, rent: [12, 60, 180, 500, 700, 900], cost: 100 },
+            15: { name: "Penn RR", color: "#000", isRR: true, prob: 0.0292, rent: [25, 50, 100, 200] },
+            16: { name: "St. James", color: "#f7941d", prob: 0.0279, rent: [14, 70, 200, 550, 750, 950], cost: 100 },
+            18: { name: "Tenn. Ave", color: "#f7941d", prob: 0.0293, rent: [14, 70, 200, 550, 750, 950], cost: 100 },
+            19: { name: "NY Avenue", color: "#f7941d", prob: 0.0308, rent: [16, 80, 220, 600, 800, 1000], cost: 100 },
+            21: { name: "Kentucky Ave", color: "#ed1c24", prob: 0.0283, rent: [18, 90, 250, 700, 875, 1050], cost: 150 },
+            23: { name: "Indiana Ave", color: "#ed1c24", prob: 0.0273, rent: [18, 90, 250, 700, 875, 1050], cost: 150 },
+            24: { name: "Illinois Ave", color: "#ed1c24", prob: 0.0318, rent: [20, 100, 300, 750, 925, 1100], cost: 150 },
+            25: { name: "B&O RR", color: "#000", isRR: true, prob: 0.0306, rent: [25, 50, 100, 200] },
+            26: { name: "Atlantic Ave", color: "#fef200", prob: 0.0271, rent: [22, 110, 330, 800, 975, 1150], cost: 150 },
+            27: { name: "Ventnor Ave", color: "#fef200", prob: 0.0268, rent: [22, 110, 330, 800, 975, 1150], cost: 150 },
+            28: { name: "Water Works", color: "#64748b", isUtil: true, prob: 0.0281, rent: [28, 70] },
+            29: { name: "Marvin Gard.", color: "#fef200", prob: 0.0258, rent: [24, 120, 360, 850, 1025, 1200], cost: 150 },
+            31: { name: "Pacific Ave", color: "#1fb25a", prob: 0.0267, rent: [26, 130, 390, 900, 1100, 1275], cost: 200 },
+            32: { name: "NC Ave", color: "#1fb25a", prob: 0.0262, rent: [26, 130, 390, 900, 1100, 1275], cost: 200 },
+            33: { name: "Chest", prob: 0.0236, isSpecial: true },
+            34: { name: "Penn Ave", color: "#1fb25a", prob: 0.0250, rent: [28, 150, 450, 1000, 1200, 1400], cost: 200 },
+            35: { name: "Short Line", color: "#000", isRR: true, prob: 0.0243, rent: [25, 50, 100, 200] },
+            36: { name: "Chance", prob: 0.0086, isSpecial: true },
+            37: { name: "Park Place", color: "#0072bb", prob: 0.0218, rent: [35, 175, 500, 1100, 1300, 1500], cost: 200 },
+            38: { name: "Lux Tax", prob: 0.0218, isSpecial: true },
+            39: { name: "Boardwalk", color: "#0072bb", prob: 0.0263, rent: [50, 200, 600, 1400, 1700, 2000], cost: 200 }
+        };
+
+        const state = {
+            playerA: { props: {}, cash: 1500, totalRev: 0 },
+            playerB: { props: {}, cash: 1500, totalRev: 0 },
+            playerC: { props: {}, cash: 1500, totalRev: 0 },
+            playerD: { props: {}, cash: 1500, totalRev: 0 },
+            staged: new Set()
+        };
+
+        let chartInstance = null;
+        let isDragging = false;
+
+        function renderBoard() {
+            const board = document.getElementById('board');
+            const currentTiles = board.querySelectorAll('.tile');
+            currentTiles.forEach(t => t.remove());
+
+            for (let i = 0; i < 40; i++) {
+                const baseNames = { 0: "GO", 2: "CHEST", 4: "INC TAX", 7: "CHANCE", 10: "JAIL", 17: "CHEST", 20: "PARKING", 22: "CHANCE", 30: "POLICE" };
+                const baseProbs = { 0: 0.0309, 2: 0.0188, 4: 0.0232, 7: 0.0086, 10: 0.0623, 17: 0.0259, 20: 0.0288, 22: 0.0104, 30: 0 };
+                const data = PROPERTY_DATA[i] || { name: baseNames[i] || "SPACE", prob: baseProbs[i] || 0, isSpecial: true };
+                const tile = document.createElement('div');
+                tile.className = 'tile';
+                
+                if (PROPERTY_DATA[i]) { 
+                    tile.draggable = true; 
+                    tile.ondragstart = (e) => { e.dataTransfer.setData("tileId", i); isDragging = true; showInspection(i); };
+                    tile.ondragend = () => { isDragging = false; hideInspection(); };
+                }
+                
+                const pos = getGridPos(i); tile.style.gridRow = pos.r; tile.style.gridColumn = pos.c;
+                const bandColor = data.color || 'var(--special-band)';
+                tile.innerHTML = `<div class="tile-color" style="background-color: ${bandColor}"></div><div class="tile-name">${data.name}</div><div class="tile-infra">${renderInfraIcons(i)}</div><div class="tile-prob">P = ${(data.prob*100).toFixed(2)}%</div>${getOwnerIndicators(i)}`;
+                
+                if (!data.isSpecial || (i === 12 || i === 28 || i === 5 || i === 15 || i === 25 || i === 35)) {
+                    tile.onmousedown = () => { if(!isDragging) showInspection(i); };
+                    tile.ontouchstart = () => { if(!isDragging) showInspection(i); };
+                    tile.onmouseup = tile.onmouseleave = tile.ontouchend = () => { if(!isDragging) hideInspection(); };
+                }
+                board.appendChild(tile);
+            }
+            renderInventories();
+        }
+
+        function renderInfraIcons(i) {
+            const ownerKey = ['playerA', 'playerB', 'playerC', 'playerD'].find(p => state[p].props[i]);
+            if (!ownerKey) return '';
+            const houses = state[ownerKey].props[i].houses || 0;
+            if (houses === 5) return HOTEL_SVG;
+            if (houses > 0) return `${HOUSE_SVG}<span class="text-[8px] font-black">x${houses}</span>`;
+            return '';
+        }
+
+        function getOwnerIndicators(i) {
+            const ownerKey = ['playerA', 'playerB', 'playerC', 'playerD'].find(p => state[p].props[i]);
+            const owner = ownerKey ? ownerKey.replace('player', '').toLowerCase() : null;
+            if (!owner) return '';
+            return `<div class="owner-tab ${owner}"></div><div class="dev-overlay" onclick="event.stopPropagation()"><div class="flex gap-1"><button onclick="modifyDev(${i}, '${owner}', -1)" class="w-8 h-8 bg-slate-200 rounded text-xl font-black shadow-md">-</button><button onclick="modifyDev(${i}, '${owner}', 1)" class="w-8 h-8 bg-slate-800 text-white rounded text-xl font-black shadow-md">+</button></div></div>`;
+        }
+
+        function handleDrop(e, team) { e.preventDefault(); const cols = document.querySelectorAll('.port-col'); cols.forEach(c => c.classList.remove('drag-over')); const tileId = e.dataTransfer.getData("tileId"); if (tileId) { setOwner(parseInt(tileId), team); hideInspection(); } }
+        function handleTradeDrop(e) { e.preventDefault(); document.querySelector('.trade-zone').classList.remove('drag-over'); const propertyId = e.dataTransfer.getData("propertyId"); if (propertyId) { toggleStage(propertyId); hideInspection(); } }
+
+        function showInspection(id) {
+            const data = PROPERTY_DATA[id]; if (!data) return;
+            const card = document.getElementById('inspection-card');
+            const rows = document.getElementById('card-rows');
+            const header = document.getElementById('card-header');
+            const footer = document.getElementById('card-footer');
+            header.innerText = data.name; header.style.backgroundColor = data.color;
+            let html = `<tr><td>R</td><td class="text-right">$${(data.rent[0] * data.prob).toFixed(2)}</td><td class="text-right">--</td></tr><tr><td>M</td><td class="text-right">$${(data.rent[0]*2 * data.prob).toFixed(2)}</td><td class="text-right">--</td></tr>`;
+            if (data.isRR) [25,50,100,200].forEach((v, idx) => html += `<tr><td>x${idx+1} RR</td><td class="text-right">$${(v*data.prob).toFixed(2)}</td><td class="text-right">--</td></tr>`);
+            else if (data.isUtil) [28,70].forEach((v, idx) => html += `<tr><td>x${idx+1} Util</td><td class="text-right">$${(v*data.prob).toFixed(2)}</td><td class="text-right">--</td></tr>`);
+            else for (let lvl = 1; lvl <= 5; lvl++) { const prevRent = (lvl === 1) ? data.rent[0] * 2 : data.rent[lvl-1]; const roi = (((data.rent[lvl] - prevRent) * data.prob / data.cost) * 100).toFixed(1) + '%'; html += `<tr><td>${lvl < 5 ? lvl+'H' : 'HT'}</td><td class="text-right">$${(data.rent[lvl] * data.prob).toFixed(2)}</td><td class="text-right ${lvl===3?'spike-cell':''}">${roi}</td></tr>`; }
+            rows.innerHTML = html; card.style.display = 'block';
+        }
+
+        function hideInspection() { document.getElementById('inspection-card').style.display = 'none'; }
+
+        function setOwner(i, team) { if (!PROPERTY_DATA[i]) return; ['playerA', 'playerB', 'playerC', 'playerD'].forEach(p => delete state[p].props[i]); if (team) state[`player${team}`].props[i] = { houses: 0 }; state.staged.delete(i.toString()); renderBoard(); calculate(); }
+        function modifyDev(i, owner, delta) { const player = state[`player${owner.toUpperCase()}`]; if (!player || !player.props[i]) return; const target = (player.props[i].houses || 0) + delta; if (target < 0) { setOwner(i, null); return; } if (target <= 5) { player.props[i].houses = target; renderBoard(); calculate(); } }
+        function toggleStage(id) { if (state.staged.has(id.toString())) state.staged.delete(id.toString()); else state.staged.add(id.toString()); renderInventories(); }
+
+        function getPropEV(id, houses, playerProps) {
+            const meta = PROPERTY_DATA[id]; if (!meta) return 0;
+            let rent = 0;
+            if (meta.isRR) rent = [25, 50, 100, 200][Object.keys(playerProps).filter(k => PROPERTY_DATA[k].isRR).length - 1] || 25;
+            else if (meta.isUtil) rent = Object.keys(playerProps).filter(k => PROPERTY_DATA[k].isUtil).length === 1 ? 28 : 70;
+            else {
+                const group = Object.values(PROPERTY_DATA).filter(p => p.color === meta.color);
+                const hasMonopoly = group.every(p => { const pid = Object.keys(PROPERTY_DATA).find(k => PROPERTY_DATA[k].name === p.name); return playerProps[pid]; });
+                rent = (houses === 0 && hasMonopoly) ? meta.rent[0] * 2 : meta.rent[houses];
+            }
+            return meta.prob * rent;
+        }
+
+        function calculate() {
+            const players = ['A', 'B', 'C', 'D'];
+            players.forEach(p => { const audit = getAudit(state[`player${p}`].props); document.getElementById(`ev-${p.toLowerCase()}-header`).innerText = audit.total.toFixed(2); state[`player${p}`].totalRev = audit.total; });
+            players.forEach(p => {
+                let offeredValue = 0; Object.keys(state[`player${p}`].props).forEach(id => { if (state.staged.has(id.toString())) offeredValue += getPropEV(id, state[`player${p}`].props[id].houses, state[`player${p}`].props); });
+                const badge = document.getElementById(`impact-${p.toLowerCase()}`); if (badge) badge.innerText = `$${offeredValue.toFixed(2)}`;
+            });
+            const simProps = { A: {...state.playerA.props}, B: {...state.playerB.props}, C: {...state.playerC.props}, D: {...state.playerD.props} };
+            Array.from(state.staged).forEach(id => {
+                if (state.playerA.props[id]) { delete simProps.A[id]; simProps.B[id] = state.playerA.props[id]; }
+                else if (state.playerC.props[id]) { delete simProps.C[id]; simProps.B[id] = state.playerC.props[id]; }
+                else if (state.playerB.props[id]) { delete simProps.B[id]; simProps.A[id] = state.playerB.props[id]; }
+                else if (state.playerD.props[id]) { delete simProps.D[id]; simProps.A[id] = state.playerD.props[id]; }
+            });
+            const shifts = {}; players.forEach(p => shifts[p] = getAudit(simProps[p]).total - state[`player${p}`].totalRev);
+            const tradeAdvantageB = shifts.B - shifts.A;
+            const deltaEl = document.getElementById('verdict-delta');
+            deltaEl.innerText = `${tradeAdvantageB >= 0 ? '+' : '-'}$${Math.abs(tradeAdvantageB).toFixed(2)}`;
+            deltaEl.className = `text-2xl font-mono font-black ${tradeAdvantageB >= 0 ? 'text-emerald-500' : 'text-rose-500'}`;
+            updateChart(tradeAdvantageB); updateGameForecast();
+        }
+
+        function getAudit(props) { let total = 0; Object.keys(props).forEach(id => total += getPropEV(id, props[id].houses, props)); return { total }; }
+
+        function updateGameForecast() {
+            const sorted = ['A', 'B', 'C', 'D'].map(p => ({id: p, rev: state[`player${p}`].totalRev, cash: parseFloat(document.getElementById(`cash-${p.toLowerCase()}`).value)})).sort((a,b)=>b.rev - a.rev);
+            const leader = sorted[0]; const trailer = sorted[3]; const gap = leader.rev - trailer.rev;
+            const forecastEl = document.getElementById('game-forecast');
+            if (gap < 0.1) { forecastEl.innerText = "Field Analysis: Balanced Equilibrium"; forecastEl.style.color = "#94a3b8"; }
+            else { const turns = isFinite(leader.cash / gap) ? Math.ceil(leader.cash / gap) : 0; forecastEl.innerText = `Player ${leader.id} Dominant • Finish in ~${turns} turns`; forecastEl.style.color = leader.id === 'A' ? '#2563eb' : leader.id === 'B' ? '#9333ea' : leader.id === 'C' ? '#f59e0b' : '#10b981'; }
+        }
+
+        function renderInventories() {
+            ['a', 'b', 'c', 'd'].forEach(p => {
+                const list = document.getElementById(`inv-${p}`); const stagedCol = document.getElementById(`staged-${p}`); const props = state[`player${p.toUpperCase()}`].props;
+                list.innerHTML = ''; stagedCol.innerHTML = `<div class="flex justify-between items-center border-b border-slate-100 mb-1 px-1"><span class="text-[7px] font-black text-slate-400 uppercase">${p}</span><span id="impact-${p}" class="impact-badge">$0.00</span></div>`;
+                Object.keys(props).sort((x,y)=>x-y).forEach(id => {
+                    const meta = PROPERTY_DATA[id]; if (!meta) return;
+                    const houses = props[id].houses; const isStaged = state.staged.has(id.toString());
+                    const div = document.createElement('div'); div.className = `property-row ${isStaged ? 'staged' : ''}`;
+                    div.draggable = true; div.ondragstart = (e) => { e.dataTransfer.setData("propertyId", id); isDragging = true; hideInspection(); };
+                    div.ondragend = () => { isDragging = false; }; div.onclick = (e) => { e.stopPropagation(); toggleStage(id); };
+                    const infraIcon = houses === 5 ? HOTEL_SVG : (houses > 0 ? `${HOUSE_SVG}<span class="text-[6px] ml-0.5">x${houses}</span>` : '');
+                    div.innerHTML = `<div class="flex items-center gap-1 min-w-0"><div class="w-1.5 h-3 shrink-0 mr-1 rounded-sm" style="background-color: ${meta.color}"></div><span class="truncate font-bold">${meta.name.substring(0,6)}..</span><div class="flex items-center ml-auto">${infraIcon}</div></div>`;
+                    list.appendChild(div);
+                    if (isStaged) {
+                        const chip = document.createElement('div'); chip.className = "text-[7px] p-0.5 bg-white border border-slate-200 rounded flex items-center gap-1 font-bold mb-1 shadow-sm";
+                        const chipInfra = houses === 5 ? HOTEL_SVG : (houses > 0 ? `${HOUSE_SVG}<span class="text-[5px]">x${houses}</span>` : '');
+                        chip.innerHTML = `<div class="w-1 h-2" style="background-color: ${meta.color}"></div><span class="truncate">${meta.name.substring(0,4)}..</span><div class="ml-auto flex items-center">${chipInfra}</div>`;
+                        stagedCol.appendChild(chip);
+                    }
+                });
+            });
+            calculate();
+        }
+
+        function updateChart(delta) {
+            const ctx = document.getElementById('tradeChart').getContext('2d');
+            const labels = Array.from({length: 41}, (_, i) => i);
+            const dataPoints = labels.map(turns => delta * turns);
+            if (chartInstance) chartInstance.destroy();
+            chartInstance = new Chart(ctx, { type: 'line', data: { labels: labels, datasets: [{ data: dataPoints, borderColor: '#C70000', backgroundColor: 'rgba(199, 0, 0, 0.05)', fill: true, tension: 0.1, pointRadius: 0, borderWidth: 3 }] }, options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => `Total Cash Value: $${ctx.raw.toFixed(2)}` } } }, scales: { x: { display: true, title: { display: true, text: 'Turns Remaining', font: { size: 8, weight: 'bold' } }, ticks: { font: { size: 7 } } }, y: { display: true, ticks: { font: { size: 7 } } } } } });
+        }
+
+        const getGridPos = (i) => { if (i >= 0 && i <= 10) return { r: 11, c: 11 - i }; if (i >= 11 && i <= 19) return { r: 11 - (i - 10), c: 1 }; if (i >= 20 && i <= 30) return { r: 1, c: i - 19 }; if (i >= 31 && i <= 39) return { r: i - 29, c: 11 }; };
+        window.onload = () => { renderBoard(); calculate(); };
+    </script>
+</body>
+</html>
